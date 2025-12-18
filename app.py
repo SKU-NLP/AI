@@ -16,7 +16,6 @@ API_URL = "http://localhost:8000/chat"
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-
 # ======================================================
 # 이전 대화 출력
 # ======================================================
