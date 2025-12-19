@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 
+##guguy=8
 # ======================================================
 # 0. 기본 설정
 # ======================================================
