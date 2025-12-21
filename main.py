@@ -32,8 +32,20 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY가 설정되어 있지 않습니다. .env 확인하세요.")
 
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+# Perplexity는 선택적 기능이므로 없어도 실행 가능
+
 # OpenAI 공식 SDK(필요하면 사용)
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Perplexity 클라이언트 (API 키가 있을 때만 활성화)
+perplexity_client = None
+if PERPLEXITY_API_KEY:
+    perplexity_client = OpenAI(
+        api_key=PERPLEXITY_API_KEY,
+        base_url="https://api.perplexity.ai"
+    )
+    print("✅ Perplexity API 클라이언트 활성화됨")
 
 # LangChain LLM
 llm = ChatOpenAI(
@@ -408,6 +420,49 @@ def build_context_text(rec_df: pd.DataFrame, top_n: int = 8) -> str:
     return "\n\n".join(blocks)
 
 
+def query_perplexity_for_school_info(university: str, major: str) -> str:
+    """
+    Perplexity API를 사용하여 특정 대학교/학과에 대한 최신 정보를 가져옵니다.
+
+    Args:
+        university: 대학명 (예: "성균관대학교")
+        major: 학과명 (예: "컴퓨터공학과")
+
+    Returns:
+        str: Perplexity가 제공한 최신 정보 (웹 검색 결과 포함)
+    """
+    if not perplexity_client:
+        return ""
+
+    try:
+        prompt = f"""
+{university} {major}에 대해 다음 정보를 제공해주세요:
+1. 학과의 주요 특징과 커리큘럼
+2. 최근 취업 현황 및 주요 진로
+3. 학과의 강점과 특색 프로그램
+4. 입학 관련 최신 정보 (경쟁률, 커트라인 등)
+5. 학과 평판 및 학생 평가
+
+간단명료하게 요약해서 답변해주세요.
+"""
+
+        response = perplexity_client.chat.completions.create(
+            model="llama-3.1-sonar-large-128k-online",
+            messages=[
+                {"role": "system", "content": "당신은 대학 입시 전문가입니다. 최신 정보를 바탕으로 정확하고 유용한 정보를 제공합니다."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=800,
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        print(f"⚠️ Perplexity API 호출 실패: {e}")
+        return ""
+
+
 # Extract grade level hints from the user's message for summary personalization.
 def extract_grade_level(text: str) -> str:
     if re.search(r"고등학교\\s*1학년|고1", text):
@@ -605,11 +660,21 @@ def chat(req: ChatRequest):
         else:
             # RAG가 충분할 때만: 기존처럼 top-1로 context 구성
             t = majors.iloc[0]
+            university = t.get('대학명', '')
+            major = t.get('학과명', '')
+
+            # 기본 RAG 컨텍스트
             context_text = (
-                f"[1] {t.get('대학명','')} / {t.get('학과명','')} ({t.get('지역','')})\n"
+                f"[내부 데이터]\n"
+                f"대학: {university} / 학과: {major} ({t.get('지역','')})\n"
                 f"- 학과특성: {t.get('학과특성','정보 없음')}\n"
                 f"- 계열: {t.get('표준분류계열(중)','정보 없음')}"
             )
+
+            # Perplexity API로 최신 정보 추가
+            perplexity_info = query_perplexity_for_school_info(university, major)
+            if perplexity_info:
+                context_text += f"\n\n[최신 웹 정보 (Perplexity)]\n{perplexity_info}"
 
             answer = answer_chain.invoke({
                 "history": history_text,
