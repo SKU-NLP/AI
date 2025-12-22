@@ -21,6 +21,3 @@ pip-selfcheck.json
 # OS
 .DS_Store
 Thumbs.db
-
-# Data files
-*.csv
